@@ -104,23 +104,36 @@
   const stopped = new Set(['idle', 'complete', 'failed', 'killed', 'stopped']);
   let map, records = [], lastRows, towers = new Map(), phase, pending, connected = false;
 
+  function colorSwatch(color) {
+    const swatch = document.createElement('span');
+    swatch.className = 'swatch';
+    swatch.style.background = colors[color][0];
+    return swatch;
+  }
+
   function draw() {
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
+    const viewWidth = canvas.clientWidth;
+    const viewHeight = canvas.clientHeight;
     const ratio = window.devicePixelRatio || 1;
-    if (canvas.width !== Math.round(w * ratio) || canvas.height !== Math.round(h * ratio)) {
-      canvas.width = Math.round(w * ratio);
-      canvas.height = Math.round(h * ratio);
+    const pixelWidth = Math.round(viewWidth * ratio);
+    const pixelHeight = Math.round(viewHeight * ratio);
+    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
     }
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-    const scale = Math.min((w - 56) / 18, (h - 64) / 13);
+    ctx.clearRect(0, 0, viewWidth, viewHeight);
+    const scale = Math.min((viewWidth - 56) / 18, (viewHeight - 64) / 13);
     if (scale < 1) return;
-    const x = m => w / 2 + (m - 6.5) * scale;
-    const y = m => h / 2 - m * scale;
-    const line = (a, b, color, width) => {
-      ctx.beginPath(); ctx.moveTo(x(a[0]), y(a[1])); ctx.lineTo(x(b[0]), y(b[1]));
-      ctx.lineWidth = width; ctx.strokeStyle = color; ctx.stroke();
+    const x = meters => viewWidth / 2 + (meters - 6.5) * scale;
+    const y = meters => viewHeight / 2 - meters * scale;
+    const line = (from, to, color, width) => {
+      ctx.beginPath();
+      ctx.moveTo(x(from[0]), y(from[1]));
+      ctx.lineTo(x(to[0]), y(to[1]));
+      ctx.lineWidth = width;
+      ctx.strokeStyle = color;
+      ctx.stroke();
     };
     ctx.font = '11px system-ui';
     ctx.fillStyle = '#adc0ce';
@@ -179,10 +192,7 @@
       const list = document.createElement('ul');
       group.forEach(row => {
         const item = document.createElement('li');
-        const dot = document.createElement('span');
-        dot.className = 'swatch';
-        dot.style.background = colors[row.color][0];
-        item.append(dot, row.number + ' · ' + row.state);
+        item.append(colorSwatch(row.color), row.number + ' · ' + row.state);
         list.append(item);
       });
       block.append(title, list);
@@ -195,10 +205,7 @@
       cells.forEach((value, i) => {
         const td = tr.insertCell();
         if (i === 4) {
-          const dot = document.createElement('span');
-          dot.className = 'swatch';
-          dot.style.background = colors[row.color][0];
-          td.append(dot);
+          td.append(colorSwatch(row.color));
         }
         td.append(String(value));
       });

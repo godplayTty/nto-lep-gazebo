@@ -156,31 +156,33 @@ def insulator(world, name, x, y, z, color):
           (.014, 2 * (INSULATOR_LENGTH - .142)), DARK)
 
 
-def marker_mesh(path, marks):
-    # Separate black and white meshes share the same geometry convention as OpenCV.
+def marker_mesh(path, markers):
     dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
-    colors = {"black": [], "white": []}
+    vertices_by_color = {"black": [], "white": []}
 
-    def quad(color, left, top, right, bottom, z):
-        colors[color].extend([(left, bottom, z), (right, bottom, z),
-                              (right, top, z), (left, top, z)])
+    def add_tile(color, left, top, right, bottom, z):
+        vertices_by_color[color].extend([
+            (left, bottom, z), (right, bottom, z),
+            (right, top, z), (left, top, z),
+        ])
 
-    for mark in marks:
-        x, y, z, size = (mark[key] for key in ("x", "y", "z", "size"))
-        quad("white", x-.23, y+.23, x+.23, y-.23, z-.001)
+    for marker in markers:
+        x, y, z, size = (marker[key] for key in ("x", "y", "z", "size"))
+        # Keep the white border one millimeter below the black cells to avoid z-fighting.
+        add_tile("white", x-.23, y+.23, x+.23, y-.23, z-.001)
         if hasattr(cv2.aruco, "generateImageMarker"):
-            pixels = cv2.aruco.generateImageMarker(dictionary, mark["id"], 8)
+            pixels = cv2.aruco.generateImageMarker(dictionary, marker["id"], 8)
         else:
-            pixels = cv2.aruco.drawMarker(dictionary, mark["id"], 8)
-        step = size / 8
+            pixels = cv2.aruco.drawMarker(dictionary, marker["id"], 8)
+        cell_size = size / 8
         for row in range(8):
             for col in range(8):
                 if not pixels[row, col]:
-                    left = x - size/2 + step*col
-                    top = y + size/2 - step*row
-                    quad("black", left, top, left+step, top-step, z)
+                    left = x - size/2 + cell_size*col
+                    top = y + size/2 - cell_size*row
+                    add_tile("black", left, top, left+cell_size, top-cell_size, z)
 
-    for color, vertices in colors.items():
+    for color, vertices in vertices_by_color.items():
         with (path / f"markers_{color}.obj").open("w") as mesh:
             mesh.write("vn 0 0 1\n")
             for p in vertices:
