@@ -127,7 +127,6 @@ class Inspection(Node):
         self.phase_started = self.clock_seconds()
         self.mission_started = None
         self.land_target = HOME
-        self.retries = 0
         self.create_timer(.10, self.step)
         self.create_timer(.50, self.publish)
         self.publish()
@@ -165,7 +164,6 @@ class Inspection(Node):
         self.active = None
         self.search = [(HOME, 0.), (HOME, -.36), (HOME, .36)]
         self.search_index = 0
-        self.retries = 0
         self.mission_started = self.clock_seconds()
         self.enable.publish(Bool(data=True))
         self.phase_to("takeoff")
@@ -197,7 +195,8 @@ class Inspection(Node):
         self.last_images[name] = time.monotonic()
         if name not in self.intrinsics:
             return
-        if name == "front" and (self.phase not in ("search", "inspect", "return") or not self.poses):
+        if name == "front" and (self.phase not in ("search", "inspect", "overflight", "return")
+                                or not self.poses):
             return
         matrix, distortion = self.intrinsics[name]
         stamp = time_stamp(message.header.stamp)
@@ -226,7 +225,7 @@ class Inspection(Node):
                 hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
                 track.add_colors(classify(hsv, matrix, distortion, t_camera, r_camera,
                                           track.center, track.front))
-        if self.phase == "return":
+        if self.phase in ("overflight", "return"):
             return
         observations = plate_observations(image, matrix, distortion, pose)
         if self.phase == "search":
@@ -331,9 +330,16 @@ class Inspection(Node):
             ready = len(track.rows()) == 4
             if self.held(reached, 2.3 if ready else 8.0) or elapsed > 35:
                 if len(self.tracks) == 3:
-                    self.phase_to("return")
+                    self.phase_to("overflight")
                 else:
                     self.next_search()
+        elif self.phase == "overflight":
+            # After the last front view, reach the tower itself above the structure.
+            front = self.active.front
+            yaw = math.atan2(-front[1], -front[0])
+            if self.held(self.go(pose, self.active.center, ALTITUDE, yaw, speed=.65), .5):
+                count = sum(len(track.rows()) for track in self.tracks)
+                self.phase_to("return", "" if count == 12 else "missing_insulators")
         elif self.phase == "return":
             if self.held(self.go(pose, HOME, ALTITUDE, 0.), .8):
                 self.land_target = HOME
@@ -347,7 +353,8 @@ class Inspection(Node):
             if elapsed > 12 or (pose is not None and pose.position[2] < .12 and elapsed > 3):
                 self.send()
                 self.enable.publish(Bool(data=False))
-                phase = {"": "complete", "operator_stop": "stopped"}.get(self.reason, "failed")
+                phase = {"": "complete", "missing_insulators": "complete",
+                         "operator_stop": "stopped"}.get(self.reason, "failed")
                 self.phase_to(phase, self.reason)
 
 

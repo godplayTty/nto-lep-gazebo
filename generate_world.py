@@ -17,6 +17,11 @@ DARK = (0.26, 0.28, 0.31)
 BLUE = (0.015, 0.15, 0.94)
 CERAMIC = {"black": (0.013, 0.015, 0.017), "brown": (0.43, 0.16, 0.052),
            "red": (0.87, 0.025, 0.032)}
+TOWER_HEIGHT = 1.50
+# The foot plates and steel thickness count toward the outside dimensions.
+BASE_HALF = .286
+TOP_HALF = .080
+FOOT_WIDTH = .052
 
 
 def node(parent, tag, value=None, **attrs):
@@ -87,18 +92,21 @@ def tower(world, name, x, y, yaw):
     link = static_link(world, name, (x, y, 0, 0, 0, yaw))
     signs = [(1, 1), (-1, 1), (-1, -1), (1, -1)]
 
+    def half_width(z):
+        return BASE_HALF + (TOP_HALF - BASE_HALF) * z / TOWER_HEIGHT
+
     def corner(i, z):
-        half = 0.30 - z * (0.20/1.50)
+        half = half_width(z)
         return signs[i][0]*half, signs[i][1]*half, z
 
     for i in range(4):
         beam(link, f"leg_{i}", corner(i, 0.018), corner(i, 1.485), 0.028)
         foot = corner(i, 0)
-        box(link, f"base_plate_{i}", (*foot[:2], 0.009), (0.085, 0.085, 0.018), DARK,
+        box(link, f"base_plate_{i}", (*foot[:2], 0.009), (FOOT_WIDTH, FOOT_WIDTH, .018), DARK,
             collision=True)
-        for k, (dx, dy) in enumerate([(-.026, -.026), (-.026, .026), (.026, -.026), (.026, .026)]):
+        for k, (dx, dy) in enumerate([(-.020, -.020), (-.020, .020), (.020, -.020), (.020, .020)]):
             shape(link, f"bolt_{i}_{k}", (foot[0]+dx, foot[1]+dy, .022, 0, 0, 0),
-                  "cylinder", (.006, .009), STEEL)
+                  "cylinder", (.004, .009), STEEL)
         j = (i+1) % 4
         levels = (.05, .37, .70, 1.08, 1.485)
         for k, z in enumerate(levels):
@@ -109,13 +117,15 @@ def tower(world, name, x, y, yaw):
 
     for number, (side, z) in POSITIONS.items():
         sign = math.copysign(1, side)
-        root = sign*(.30-z*(.20/1.50))
-        lower = sign*(.30-(z-.16)*(.20/1.50))
+        root = sign*half_width(z)
+        lower = sign*half_width(z-.16)
         for j, direction in enumerate((-1, 1)):
             beam(link, f"arm_{number}_{j}", (direction*abs(root), root, z),
                  (0, side, z), .024)
             beam(link, f"strut_{number}_{j}", (direction*abs(lower), lower, z-.16),
                  (0, side, z), .017)
+            beam(link, f"arm_brace_{number}_{j}", (direction*abs(lower)/2, (lower+side)/2, z-.08),
+                 (direction*abs(root)/2, (root+side)/2, z), .013)
             box(link, f"gusset_{number}_{j}", (direction*abs(root), root, z),
                 (.052, .042, .064), DARK)
         box(link, f"hanger_{number}", (0, side, z-.011), (.036, .032, .025), DARK)
@@ -129,16 +139,21 @@ def tower(world, name, x, y, yaw):
     node(plane, "normal", (0, 0, 1))
     node(plane, "size", (PLATE_SIZE, PLATE_SIZE))
     appearance(face, BLUE, emissive=True)
+    for i, (dy, dz) in enumerate([(-.08, -.08), (-.08, .08), (.08, -.08), (.08, .08)]):
+        shape(link, f"sign_bolt_{i}", (PLATE_OFFSET+.001, dy, PLATE_HEIGHT+dz, 0, math.pi/2, 0),
+              "cylinder", (.004, .003), STEEL)
 
 
 def insulator(world, name, x, y, z, color):
     link = static_link(world, name, (x, y, z, 0, 0, 0))
-    shape(link, "core", (0, 0, -.075, 0, 0, 0), "cylinder",
-          (.022, INSULATOR_LENGTH), CERAMIC[color])
+    shape(link, "core", (0, 0, -.070, 0, 0, 0), "cylinder", (.022, .120), CERAMIC[color])
     for index in range(6):
         shape(link, f"skirt_{index}", (0, 0, -.024-.020*index, 0, 0, 0),
               "cylinder", (.050 if index % 2 == 0 else .043, .015), CERAMIC[color])
-    shape(link, "eye", (0, 0, -.142, 0, 0, 0), "cylinder", (.014, .016), DARK)
+    shape(link, "top_fitting", (0, 0, -.009, 0, 0, 0), "cylinder", (.027, .018), STEEL)
+    shape(link, "bottom_fitting", (0, 0, -.132, 0, 0, 0), "cylinder", (.027, .014), STEEL)
+    shape(link, "eye", (0, 0, -.142, 0, 0, 0), "cylinder",
+          (.014, 2 * (INSULATOR_LENGTH - .142)), DARK)
 
 
 def marker_mesh(path, marks):

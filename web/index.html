@@ -9,12 +9,12 @@
     :root { color-scheme: dark; background: #111820; color: #eef4f6; font: 16px/1.5 system-ui, sans-serif; }
     * { box-sizing: border-box; }
     body { margin: 0; }
-    main { margin: auto; max-width: 1370px; padding: clamp(18px, 3vw, 42px); }
-    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+    main { margin: auto; max-width: 1260px; padding: clamp(16px, 2.5vw, 32px); }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
     h1, h2, p { margin: 0; }
-    h1 { font-size: clamp(26px, 4vw, 38px); letter-spacing: -.04em; }
+    h1 { font-size: clamp(25px, 3vw, 32px); letter-spacing: -.025em; }
     h2 { font-size: 18px; font-weight: 650; }
-    .panel { border: 1px solid #314250; border-radius: 12px; background: #17222c; overflow: hidden; }
+    .panel { border: 1px solid #314250; border-radius: 8px; background: #17222c; overflow: hidden; }
     .toolbar, .heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 14px 17px; }
     .toolbar { padding: 0; }
     button { min-height: 40px; padding: 6px 16px; background: #263745; color: #eef4f6; font: inherit; font-weight: 630; border: 1px solid #3f5669; border-radius: 7px; cursor: pointer; }
@@ -23,28 +23,36 @@
     button:disabled { opacity: .44; cursor: default; }
     button:focus-visible { outline: 2px solid #c9f4ff; outline-offset: 3px; }
     #status { color: #9de4ce; font-weight: 650; }
-    #notice { color: #ffcaac; min-height: 1.5em; margin: 0 0 12px; }
-    .grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; }
-    canvas { display: block; width: 100%; aspect-ratio: 1.24; background: #13202a; }
+    #notice { color: #ffcaac; margin: 0 0 12px; }
+    #notice:empty { margin: 0; }
+    .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(390px, .92fr);
+      gap: 14px; align-items: start; }
+    canvas { display: block; width: 100%; aspect-ratio: 1.4; background: #13202a; }
     .muted { color: #adc0ce; }
-    #tower-states { display: grid; grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+    #numbering { padding: 10px 17px 0; border-top: 1px solid #314250; font-size: 13px; }
+    #tower-states { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
       gap: 12px; padding: 0 17px; }
-    #tower-states:not(:empty) { padding-block: 12px; border-top: 1px solid #314250; }
+    #tower-states:not(:empty) { padding-block: 8px 12px; }
     #tower-states strong { color: #9de4ce; }
     #tower-states ul { margin: 4px 0 0; padding: 0; list-style: none; font-size: 13px; }
     .table-wrap { overflow: auto; }
     table { border-collapse: collapse; width: 100%; font-size: 14px; }
-    td, th { text-align: left; white-space: nowrap; padding: 8px 8px; border-top: 1px solid #314250; }
+    td, th { text-align: left; white-space: nowrap; padding: 7px 7px; border-top: 1px solid #314250; }
+    td:nth-child(2), td:nth-child(3) { font-variant-numeric: tabular-nums; }
     th { color: #adc0ce; font-weight: 550; }
     code { font-size: .88em; }
     .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
-    @media (max-width: 880px) { .grid { grid-template-columns: 1fr; } }
+    @media (max-width: 800px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+    @media (max-width: 480px) {
+      td, th { padding-inline: 4px; font-size: 12px; }
+      td .swatch { width: 8px; height: 8px; margin-right: 4px; }
+    }
   </style>
 </head>
 <body>
 <main>
   <header>
-    <div><h1>Обследование ЛЭП</h1><p id="status" role="status">Соединение с ROS</p></div>
+    <div><h1>Обследование ЛЭП</h1><p id="status" role="status">Подключение к панели</p></div>
     <div class="toolbar">
       <button data-action="start" disabled>Старт</button>
       <button data-action="stop" disabled>Стоп</button>
@@ -54,12 +62,13 @@
   <p id="notice" role="alert"></p>
   <div class="grid">
     <section class="panel">
-      <div class="heading"><h2>Карта миссии</h2><code class="muted">aruco_map · м</code></div>
+      <div class="heading"><h2>Карта</h2><code class="muted">aruco_map · м</code></div>
       <canvas aria-label="Карта маркеров, проводов и обследованных опор"></canvas>
+      <p id="numbering" class="muted" hidden>Нумерация со стороны синей таблички.</p>
       <div id="tower-states"></div>
     </section>
     <section class="panel">
-      <div class="heading"><h2>Изоляторы</h2><code id="count" class="muted">/insulators · 0</code></div>
+      <div class="heading"><h2>Изоляторы</h2><code id="count" class="muted">/insulators · 0 из 12</code></div>
       <div class="table-wrap">
         <table><thead><tr><th>Опора</th><th>X, м</th><th>Y, м</th><th>№</th><th>Цвет</th><th>Состояние</th></tr></thead><tbody id="rows"></tbody></table>
       </div>
@@ -73,18 +82,27 @@
   const count = document.querySelector('#count');
   const notice = document.querySelector('#notice');
   const tbody = document.querySelector('#rows');
+  const numbering = document.querySelector('#numbering');
   const towerStates = document.querySelector('#tower-states');
   const buttons = Array.from(document.querySelectorAll('[data-action]'));
   const labels = {
     idle: 'Ожидание старта', takeoff: 'Взлёт', search: 'Поиск опор', inspect: 'Обследование',
-    return: 'Возврат', landing: 'Посадка', complete: 'Миссия завершена', killed: 'Роторы отключены',
-    failed: 'Миссия прервана', stopped: 'Посадка по команде оператора',
+    overflight: 'Пролёт над последней опорой', return: 'Возврат к старту', landing: 'Посадка',
+    complete: 'Миссия завершена', killed: 'Роторы отключены', failed: 'Миссия прервана',
+    stopped: 'Посадка выполнена',
+  };
+  const reasons = {
+    search_exhausted: 'Найдены не все опоры.',
+    missing_insulators: 'Распознаны не все изоляторы.',
+    no_aruco_fix: 'Не удалось определить положение по ArUco.',
+    localisation_timeout: 'Потеряна позиция или истекло время миссии.',
   };
   const colors = {
     red: ['#fa7781', 'Красный'], brown: ['#e1a36b', 'Коричневый'], black: ['#414955', 'Чёрный'],
   };
+  const markerOffset = {1: [8, 13], 2: [-8, 13], 3: [-8, 28], 4: [8, 28]};
   const stopped = new Set(['idle', 'complete', 'failed', 'killed', 'stopped']);
-  let map, records = [], towers = new Map(), phase, pending, connected = false;
+  let map, records = [], lastRows, towers = new Map(), phase, pending, connected = false;
 
   function draw() {
     const w = canvas.clientWidth;
@@ -133,9 +151,9 @@
       ctx.fillStyle = '#83e0bf'; ctx.fill();
       ctx.font = '600 12px system-ui';
       ctx.fillText(id, px + 8, py - 8);
-      group.forEach((row, i) => {
-        const xx = px + (i % 2 ? 8 : -8);
-        const yy = py + (i > 1 ? 28 : 13);
+      group.forEach(row => {
+        const [dx, dy] = markerOffset[row.number];
+        const xx = px + dx, yy = py + dy;
         ctx.beginPath(); ctx.arc(xx, yy, 7, 0, 2 * Math.PI);
         ctx.fillStyle = colors[row.color][0]; ctx.fill();
         ctx.strokeStyle = '#b0c5d0'; ctx.stroke();
@@ -147,7 +165,8 @@
   }
 
   function render() {
-    count.textContent = '/insulators · ' + records.length;
+    count.textContent = '/insulators · ' + records.length + ' из 12';
+    numbering.hidden = records.length === 0;
     towers = new Map();
     for (const row of records) {
       if (!towers.has(row.tower_id)) towers.set(row.tower_id, []);
@@ -189,7 +208,7 @@
       const empty = tbody.insertRow().insertCell();
       empty.colSpan = 6;
       empty.className = 'muted';
-      empty.textContent = 'Ожидаю данные обследования';
+      empty.textContent = 'Здесь появятся результаты осмотра.';
     }
     draw();
   }
@@ -211,12 +230,18 @@
       const data = await response.json();
       connected = true;
       phase = data.status.phase;
-      status.textContent = labels[phase] || phase;
-      records = data.results.insulators;
-      render();
+      const detail = reasons[data.status.reason];
+      const text = (labels[phase] || phase) + (detail ? '. ' + detail : '');
+      if (status.textContent !== text) status.textContent = text;
+      const rows = JSON.stringify(data.results.insulators);
+      if (rows !== lastRows) {
+        lastRows = rows;
+        records = data.results.insulators;
+        render();
+      }
     } catch (_) {
       connected = false;
-      status.textContent = 'Нет связи с ROS';
+      status.textContent = 'Панель недоступна';
     }
     controls();
     window.setTimeout(poll, 750);

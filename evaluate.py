@@ -49,8 +49,11 @@ def evaluate(reference, capture):
                    for i in tower["insulators"])
         correct += hits
         print(f"{identity} → {tower['id']}: {distance:.3f} м, изоляторы {hits}/4")
-    print(f"Опоры {len(best)}/{len(expected)}, изоляторы {correct}/12")
-    return len(best) == len(expected) and correct == 12
+    total = sum(len(tower["insulators"]) for tower in expected)
+    print(f"Опоры {len(best)}/{len(expected)}, изоляторы {correct}/{total}")
+    if len(rows) > total:
+        print(f"Лишних записей: {len(rows) - total}")
+    return len(best) == len(expected) and correct == len(rows) == total
 
 
 def main():
