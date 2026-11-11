@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Обследование ЛЭП</title>
+  <style>
+    :root { color-scheme: dark; background: #111820; color: #eef4f6; font: 16px/1.5 system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { margin: auto; max-width: 1370px; padding: clamp(18px, 3vw, 42px); }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+    h1, h2, p { margin: 0; }
+    h1 { font-size: clamp(26px, 4vw, 38px); letter-spacing: -.04em; }
+    h2 { font-size: 18px; font-weight: 650; }
+    .panel { border: 1px solid #314250; border-radius: 12px; background: #17222c; overflow: hidden; }
+    .toolbar, .heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 14px 17px; }
+    .toolbar { padding: 0; }
+    button { min-height: 40px; padding: 6px 16px; background: #263745; color: #eef4f6; font: inherit; font-weight: 630; border: 1px solid #3f5669; border-radius: 7px; cursor: pointer; }
+    button[data-action=start] { background: #85e0bf; color: #101e1b; border-color: #85e0bf; }
+    button[data-action=kill] { color: #ffadad; border-color: #995762; }
+    button:disabled { opacity: .44; cursor: default; }
+    button:focus-visible { outline: 2px solid #c9f4ff; outline-offset: 3px; }
+    #status { color: #9de4ce; font-weight: 650; }
+    #notice { color: #ffcaac; min-height: 1.5em; margin: 0 0 12px; }
+    .grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; }
+    canvas { display: block; width: 100%; aspect-ratio: 1.24; background: #13202a; }
+    .muted { color: #adc0ce; }
+    #tower-states { display: grid; grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+      gap: 12px; padding: 0 17px; }
+    #tower-states:not(:empty) { padding-block: 12px; border-top: 1px solid #314250; }
+    #tower-states strong { color: #9de4ce; }
+    #tower-states ul { margin: 4px 0 0; padding: 0; list-style: none; font-size: 13px; }
+    .table-wrap { overflow: auto; }
+    table { border-collapse: collapse; width: 100%; font-size: 14px; }
+    td, th { text-align: left; white-space: nowrap; padding: 8px 8px; border-top: 1px solid #314250; }
+    th { color: #adc0ce; font-weight: 550; }
+    code { font-size: .88em; }
+    .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+    @media (max-width: 880px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div><h1>Обследование ЛЭП</h1><p id="status" role="status">Соединение с ROS</p></div>
+    <div class="toolbar">
+      <button data-action="start" disabled>Старт</button>
+      <button data-action="stop" disabled>Стоп</button>
+      <button data-action="kill" disabled>Kill switch</button>
+    </div>
+  </header>
+  <p id="notice" role="alert"></p>
+  <div class="grid">
+    <section class="panel">
+      <div class="heading"><h2>Карта миссии</h2><code class="muted">aruco_map · м</code></div>
+      <canvas aria-label="Карта маркеров, проводов и обследованных опор"></canvas>
+      <div id="tower-states"></div>
+    </section>
+    <section class="panel">
+      <div class="heading"><h2>Изоляторы</h2><code id="count" class="muted">/insulators · 0</code></div>
+      <div class="table-wrap">
+        <table><thead><tr><th>Опора</th><th>X, м</th><th>Y, м</th><th>№</th><th>Цвет</th><th>Состояние</th></tr></thead><tbody id="rows"></tbody></table>
+      </div>
+    </section>
+  </div>
+</main>
+<script>
+  const canvas = document.querySelector('canvas');
+  const ctx = canvas.getContext('2d');
+  const status = document.querySelector('#status');
+  const count = document.querySelector('#count');
+  const notice = document.querySelector('#notice');
+  const tbody = document.querySelector('#rows');
+  const towerStates = document.querySelector('#tower-states');
+  const buttons = Array.from(document.querySelectorAll('[data-action]'));
+  const labels = {
+    idle: 'Ожидание старта', takeoff: 'Взлёт', search: 'Поиск опор', inspect: 'Обследование',
+    return: 'Возврат', landing: 'Посадка', complete: 'Миссия завершена', killed: 'Роторы отключены',
+    failed: 'Миссия прервана', stopped: 'Посадка по команде оператора',
+  };
+  const colors = {
+    red: ['#fa7781', 'Красный'], brown: ['#e1a36b', 'Коричневый'], black: ['#414955', 'Чёрный'],
+  };
+  const stopped = new Set(['idle', 'complete', 'failed', 'killed', 'stopped']);
+  let map, records = [], towers = new Map(), phase, pending, connected = false;
+
+  function draw() {
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    const ratio = window.devicePixelRatio || 1;
+    if (canvas.width !== Math.round(w * ratio) || canvas.height !== Math.round(h * ratio)) {
+      canvas.width = Math.round(w * ratio);
+      canvas.height = Math.round(h * ratio);
+    }
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const scale = Math.min((w - 56) / 18, (h - 64) / 13);
+    if (scale < 1) return;
+    const x = m => w / 2 + (m - 6.5) * scale;
+    const y = m => h / 2 - m * scale;
+    const line = (a, b, color, width) => {
+      ctx.beginPath(); ctx.moveTo(x(a[0]), y(a[1])); ctx.lineTo(x(b[0]), y(b[1]));
+      ctx.lineWidth = width; ctx.strokeStyle = color; ctx.stroke();
+    };
+    ctx.font = '11px system-ui';
+    ctx.fillStyle = '#adc0ce';
+    for (let i = -2; i <= 15; i++) {
+      line([i, -6.5], [i, 6.5], '#243846', 1);
+      if (i % 2 === 0) ctx.fillText(i, x(i) - 5, y(-6.5) + 17);
+    }
+    for (let i = -6; i <= 6; i++) {
+      line([-2.5, i], [15.5, i], '#243846', 1);
+      if (i % 2 === 0) ctx.fillText(i, x(-2.5) - 23, y(i) + 4);
+    }
+    line([-2.5, 0], [15.5, 0], '#516c7d', 1);
+    line([0, -6.5], [0, 6.5], '#516c7d', 1);
+    if (!map) return;
+    ctx.fillStyle = '#546a77';
+    for (const m of map.markers) {
+      const d = m.size * scale;
+      ctx.fillRect(x(m.x) - d / 2, y(m.y) - d / 2, d, d);
+    }
+    for (const wire of map.wires) line(wire.from, wire.to, '#9db4c5', 1.8);
+    ctx.fillStyle = '#9de4ce';
+    ctx.fillText('0, 0', x(0) + 7, y(0) + 16);
+    ctx.fillRect(x(0) - 3, y(0) - 3, 6, 6);
+    for (const [id, group] of towers) {
+      const px = x(group[0].x), py = y(group[0].y);
+      ctx.beginPath();
+      ctx.arc(px, py, 5, 0, 2 * Math.PI);
+      ctx.fillStyle = '#83e0bf'; ctx.fill();
+      ctx.font = '600 12px system-ui';
+      ctx.fillText(id, px + 8, py - 8);
+      group.forEach((row, i) => {
+        const xx = px + (i % 2 ? 8 : -8);
+        const yy = py + (i > 1 ? 28 : 13);
+        ctx.beginPath(); ctx.arc(xx, yy, 7, 0, 2 * Math.PI);
+        ctx.fillStyle = colors[row.color][0]; ctx.fill();
+        ctx.strokeStyle = '#b0c5d0'; ctx.stroke();
+        ctx.fillStyle = row.color === 'black' ? '#fff' : '#13202a';
+        ctx.font = 'bold 9px system-ui';
+        ctx.fillText(row.number, xx - 2.5, yy + 3);
+      });
+    }
+  }
+
+  function render() {
+    count.textContent = '/insulators · ' + records.length;
+    towers = new Map();
+    for (const row of records) {
+      if (!towers.has(row.tower_id)) towers.set(row.tower_id, []);
+      towers.get(row.tower_id).push(row);
+    }
+    towerStates.replaceChildren(...Array.from(towers, ([id, group]) => {
+      const block = document.createElement('div');
+      const title = document.createElement('strong');
+      title.textContent = id;
+      const list = document.createElement('ul');
+      group.forEach(row => {
+        const item = document.createElement('li');
+        const dot = document.createElement('span');
+        dot.className = 'swatch';
+        dot.style.background = colors[row.color][0];
+        item.append(dot, row.number + ' · ' + row.state);
+        list.append(item);
+      });
+      block.append(title, list);
+      return block;
+    }));
+    tbody.replaceChildren(...records.map(row => {
+      const tr = document.createElement('tr');
+      const cells = [row.tower_id, row.x.toFixed(2), row.y.toFixed(2), row.number,
+                     colors[row.color][1], row.state];
+      cells.forEach((value, i) => {
+        const td = tr.insertCell();
+        if (i === 4) {
+          const dot = document.createElement('span');
+          dot.className = 'swatch';
+          dot.style.background = colors[row.color][0];
+          td.append(dot);
+        }
+        td.append(String(value));
+      });
+      return tr;
+    }));
+    if (!records.length) {
+      const empty = tbody.insertRow().insertCell();
+      empty.colSpan = 6;
+      empty.className = 'muted';
+      empty.textContent = 'Ожидаю данные обследования';
+    }
+    draw();
+  }
+
+  function controls() {
+    buttons.forEach(button => {
+      const action = button.dataset.action;
+      const active = connected && !stopped.has(phase);
+      if (action === 'start') button.disabled = !connected || !!pending || !['idle', 'complete'].includes(phase);
+      if (action === 'stop') button.disabled = !active || !!pending || phase === 'landing';
+      if (action === 'kill') button.disabled = !connected || (!active && pending !== 'start') || pending === 'kill';
+    });
+  }
+
+  async function poll() {
+    try {
+      const response = await fetch('/state');
+      if (!response.ok) throw Error('HTTP ' + response.status);
+      const data = await response.json();
+      connected = true;
+      phase = data.status.phase;
+      status.textContent = labels[phase] || phase;
+      records = data.results.insulators;
+      render();
+    } catch (_) {
+      connected = false;
+      status.textContent = 'Нет связи с ROS';
+    }
+    controls();
+    window.setTimeout(poll, 750);
+  }
+
+  buttons.forEach(button => button.addEventListener('click', async () => {
+    const action = button.dataset.action;
+    pending = action;
+    controls();
+    try {
+      const response = await fetch('/command/' + action, {method: 'POST'});
+      const result = await response.json();
+      notice.textContent = result.message;
+      if (result.ok && action === 'start') phase = 'takeoff';
+    } catch (_) {
+      notice.textContent = 'Команда не доставлена';
+    } finally {
+      if (pending === action) pending = undefined;
+      controls();
+    }
+  }));
+
+  new ResizeObserver(() => window.requestAnimationFrame(draw)).observe(canvas);
+  fetch('/map').then(r => r.json()).then(value => { map = value; draw(); }).catch(() => {
+    notice.textContent = 'Карта мира недоступна';
+  });
+  poll();
+</script>
+</body>
+</html>

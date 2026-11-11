@@ -1,0 +1,6 @@
+{
+  "name": "LEP · ROS 2 Jazzy / Gazebo Harmonic",
+  "build": {"dockerfile": "Dockerfile"},
+  "forwardPorts": [8080],
+  "portsAttributes": {"8080": {"label": "Панель обследования ЛЭП"}}
+}

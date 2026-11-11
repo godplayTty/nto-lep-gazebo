@@ -1,0 +1,7 @@
+- {ros_topic_name: /clock, gz_topic_name: /clock, ros_type_name: rosgraph_msgs/msg/Clock, gz_type_name: gz.msgs.Clock, direction: GZ_TO_ROS}
+- {ros_topic_name: /camera/down/image, gz_topic_name: /camera/down/image, ros_type_name: sensor_msgs/msg/Image, gz_type_name: gz.msgs.Image, direction: GZ_TO_ROS, qos_profile: SENSOR_DATA, subscriber_queue: 1, publisher_queue: 1}
+- {ros_topic_name: /camera/down/camera_info, gz_topic_name: /camera/down/camera_info, ros_type_name: sensor_msgs/msg/CameraInfo, gz_type_name: gz.msgs.CameraInfo, direction: GZ_TO_ROS, qos_profile: SENSOR_DATA}
+- {ros_topic_name: /camera/front/image, gz_topic_name: /camera/front/image, ros_type_name: sensor_msgs/msg/Image, gz_type_name: gz.msgs.Image, direction: GZ_TO_ROS, qos_profile: SENSOR_DATA, subscriber_queue: 1, publisher_queue: 1}
+- {ros_topic_name: /camera/front/camera_info, gz_topic_name: /camera/front/camera_info, ros_type_name: sensor_msgs/msg/CameraInfo, gz_type_name: gz.msgs.CameraInfo, direction: GZ_TO_ROS, qos_profile: SENSOR_DATA}
+- {ros_topic_name: /inspection_quad/cmd_vel, gz_topic_name: /inspection_quad/cmd_vel, ros_type_name: geometry_msgs/msg/Twist, gz_type_name: gz.msgs.Twist, direction: ROS_TO_GZ}
+- {ros_topic_name: /inspection_quad/enable, gz_topic_name: /inspection_quad/enable, ros_type_name: std_msgs/msg/Bool, gz_type_name: gz.msgs.Boolean, direction: ROS_TO_GZ}
